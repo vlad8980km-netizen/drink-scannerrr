@@ -55,27 +55,88 @@ const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera
 
 document.addEventListener("DOMContentLoaded", () => {
     // 1. СКАНЕР
-    const scannerSection = document.getElementById('scanner-zone');
-    if (isMobileDevice) {
-        if (typeof Html5QrcodeScanner === 'undefined') {
-            scannerSection.innerHTML = '<div class="pc-warning">⚠️ Не удалось загрузить библиотеку сканера. Проверьте интернет-соединение.</div>';
-        } else {
-            scannerSection.innerHTML = '<div id="reader" style="width:100%"></div>';
-            const html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 15, qrbox: 250 }, false);
-            html5QrcodeScanner.render((text) => {
-                // TODO: здесь будет поиск по штрихкоду
-                showDrinkInfo('dobry_cola');
-            }, () => {});
-        }
-    } else {
-        scannerSection.innerHTML = `
-            <div class="pc-warning">
-                <strong>⚡ Сканер не работает в ПК-версии сайта, он работает только в мобильной версии.</strong><br>
-                Вы можете протестировать работу карточек, выбрав реальную газировку в каталоге ниже.
-            </div>
-        `;
-    }
+const scannerSection = document.getElementById('scanner-zone');
+let html5QrcodeScanner = null; // чтобы можно было остановить снаружи
 
+if (isMobileDevice) {
+    if (typeof Html5QrcodeScanner === 'undefined') {
+        scannerSection.innerHTML = '<div class="pc-warning">⚠️ Не удалось загрузить библиотеку сканера. Проверьте интернет-соединение.</div>';
+    } else {
+        scannerSection.innerHTML = '<div id="reader" style="width:100%"></div>';
+
+        html5QrcodeScanner = new Html5QrcodeScanner(
+            "reader",
+            { fps: 15, qrbox: 250 },
+            false
+        );
+
+        html5QrcodeScanner.render(
+            (decodedText) => {
+                handleScannedCode(decodedText);
+            },
+            (error) => { /* ошибки чтения — игнорируем, это нормальный поток */ }
+        );
+    }
+} else {
+    scannerSection.innerHTML = `<div class="pc-warning">
+        <strong>⚡ Сканер не работает в ПК-версии сайта, он работает только в мобильной версии.</strong><br>
+        Вы можете протестировать работу карточек, выбрав реальную газировку в каталоге ниже.
+    </div>`;
+}
+
+// === Обработчик считанного кода ===
+function handleScannedCode(rawCode) {
+    // 1. Чистим код от пробелов и переносов
+    const code = String(rawCode).trim();
+
+    // 2. Ищем в маппинге
+    const drinkKey = barcodesMap[code];
+
+    if (drinkKey && drinksData[drinkKey]) {
+        // Нашли — останавливаем сканер (чтобы не жужжал и не жрал батарею)
+        stopScanner();
+        // Показываем карточку
+        showDrinkInfo(drinkKey);
+    } else {
+        // Не нашли — показываем понятное сообщение
+        showUnknownDrink(code);
+    }
+}
+
+// Остановка сканера
+function stopScanner() {
+    if (html5QrcodeScanner) {
+        html5QrcodeScanner.clear().catch(err => console.warn('Ошибка остановки сканера:', err));
+        html5QrcodeScanner = null;
+    }
+}
+
+// Модалка "напиток не найден"
+function showUnknownDrink(code) {
+    document.getElementById('modalTitle').innerText = 'Напиток не найден';
+    document.getElementById('modalImg').src = PLACEHOLDER;
+
+    const badge = document.getElementById('modalBadge');
+    badge.innerText = 'Нет в базе';
+    badge.className = 'product-status status-warning';
+
+    document.getElementById('modalType').innerText = '—';
+    document.getElementById('modalVolume').innerText = '—';
+    document.getElementById('modalSugar').innerText = '—';
+    document.getElementById('modalCalories').innerText = '—';
+    document.getElementById('modalCaffeine').innerText = '—';
+    document.getElementById('modalIngredients').innerText = '—';
+
+    const risksList = document.getElementById('modalRisks');
+    risksList.innerHTML = `<li>Этот штрихкод (<b>${code}</b>) пока отсутствует в нашей базе.</li>
+                           <li>Если у вас есть бутылка — напишите нам, мы добавим напиток.</li>`;
+
+    document.getElementById('modalLimit').innerText = '—';
+    document.getElementById('modalAudience').innerText = '—';
+    document.getElementById('modalVerdict').innerText = 'Данные по этому напитку ещё не загружены.';
+
+    document.getElementById('drinkModal').style.display = 'flex';
+}
     // 2. КАТАЛОГ
     const catalogContainer = document.getElementById('catalog-container');
     catalogContainer.innerHTML = '';
